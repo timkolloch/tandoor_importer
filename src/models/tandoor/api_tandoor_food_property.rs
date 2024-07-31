@@ -15,7 +15,7 @@ pub struct ApiTandoorFoodProperty {
 impl From<InternalTandoorFoodProperty> for ApiTandoorFoodProperty{
     fn from(value: InternalTandoorFoodProperty) -> Self {
         ApiTandoorFoodProperty{
-            property_amount: value.property_amount.to_string(),
+            property_amount: value.property_amount.unwrap_or(0.0).to_string(),
             property_type: ApiTandoorProperty::from(value.property_type),
         }
     }
