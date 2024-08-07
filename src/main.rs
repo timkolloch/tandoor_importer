@@ -60,19 +60,12 @@ fn main(){
     let mut updated_foods: i32 = 0;
     let mut not_updated_foods: i32 = 0;
     let mut no_fdc_id: i32 = 0;
-    let re = Regex::new(r"food-details/(\d+)/nutrients").unwrap();
     for food in tandoor_foods{
         // Get data from USDA
         let fdc_id: i32;
-        if let Some(food_url) = food.url.clone() {
-            if let Some(caps) = re.captures(&*food_url) {
-                fdc_id = (&caps[1]).parse().unwrap();
-            }else{
-                println!("Food {} does not have a FDC ID and will not be updated.", food.name);
-                no_fdc_id += 1;
-                continue;
-            }
-        } else {
+        if let Some(id) = get_fdc_id(&food){
+            fdc_id = id
+        }else{
             println!("Food {} does not have a FDC ID and will not be updated.", food.name);
             no_fdc_id += 1;
             continue;
@@ -264,4 +257,34 @@ fn update_food(client: &Client, tandoor_endpoint: &String, tandoor_api_key: &Str
         .send()?
         .error_for_status()?;
     Ok(true)
+}
+
+/// Gets the FDC ID from a given food (either from the URL field or the FDC ID field).
+/// ### Parameters
+/// - food: The food for which the FDC ID should be retrieved.
+/// ### Returns
+/// Option<i32> containing the FDC ID or None if no FDC ID was found in the URL or FDC ID field.
+fn get_fdc_id(food: &InternalTandoorFood) -> Option<i32>{
+    
+    // Closure to handle fallback to FDC ID field.
+    let get_fdc_id_from_field = || {
+        if let Some(fdc_id_of_food) = food.fdc_id.clone() {
+            Some(fdc_id_of_food)
+        } else {
+            None
+        }
+    };
+    
+    let re = Regex::new(r"food-details/(\d+)/nutrients").unwrap();
+    // If URL is set use that to get FDC ID
+    // if no URL is set or no FDC ID can be matched from the URL, use FDC ID field.
+    return if let Some(food_url) = food.url.clone() {
+        if let Some(caps) = re.captures(&*food_url) {
+            Some((&caps[1]).parse().unwrap())
+        } else {
+            get_fdc_id_from_field()
+        }
+    } else {
+        get_fdc_id_from_field()
+    }
 }
