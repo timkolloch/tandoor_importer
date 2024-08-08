@@ -10,6 +10,8 @@ use std::thread::sleep;
 use std::time::Duration;
 use regex::Regex;
 use reqwest::blocking::{Client};
+use log::{debug, info, warn, error, trace};
+use env_logger;
 
 mod models;
 use models::configuration::Configuration;
@@ -25,11 +27,14 @@ fn main(){
     // Create clint for api requests.
     let client = Client::new();
 
+    env_logger::init();
+
     // Read app settings
     let app_settings = fs::read_to_string("./appsettings.json").expect("Should've been able to read the file");
     let configuration: Configuration = serde_json::from_str(&app_settings).expect("Appsettings were not well-formatted.");
     let usda_api_key = configuration.usda_api_key;
     let tandoor_endpoint = format!("http://{}/api/", configuration.tandoor_url);
+    debug!("The configured Tandoor API endpoint is: {}", tandoor_endpoint);
     let tandoor_api_key = configuration.tandoor_api_key;
 
     // Get Properties
@@ -37,10 +42,11 @@ fn main(){
     match get_food_properties(&client, &tandoor_endpoint, &tandoor_api_key) {
         Ok(props) => {
             tandoor_properties = Some(props).unwrap();
-            println!("Found {} properties.", tandoor_properties.len());
+            info!("Found {} properties.", tandoor_properties.len());
+            trace!("{}", serde_json::to_string(&tandoor_properties).unwrap());
         }
         Err(e) => {
-            eprintln!("Error fetching food properties: {:?}", e);
+            error!("Error fetching food properties: {:?}", e);
         }
     }
     let tandoor_property_id_name: HashMap<i32, String> = tandoor_properties.iter().map(|x| (x.fdc_id, x.name.to_string())).collect();
@@ -50,9 +56,10 @@ fn main(){
     match get_foods(&client, &tandoor_endpoint, &tandoor_api_key) {
         Ok(props) => {
             tandoor_foods = Some(props).unwrap();
+            info!("Found {} foods.", tandoor_foods.len());
         }
         Err(e) => {
-            eprintln!("Error fetching foods: {:?}", e);
+            error!("Error fetching foods: {:?}", e);
         }
     }
 
@@ -61,22 +68,25 @@ fn main(){
     let mut not_updated_foods: i32 = 0;
     let mut no_fdc_id: i32 = 0;
     for food in tandoor_foods{
+        debug!("Going to update food {}", food.name);
         // Get data from USDA
         let fdc_id: i32;
         if let Some(id) = get_fdc_id(&food){
+            debug!("Found FDC ID {} for food {}.", id, food.name);
             fdc_id = id
         }else{
-            println!("Food {} does not have a FDC ID and will not be updated.", food.name);
+            warn!("Food {} does not have a FDC ID and will not be updated.", food.name);
             no_fdc_id += 1;
             continue;
         }
         
         let usda_data = match get_food_data(&client, &fdc_id, &usda_api_key, &tandoor_property_id_name) {
             Ok(props) => {
+                debug!("Fetched properties for food {} from the USDA FDC database using {} as the ID", food.name, fdc_id);
                 props
             }
             Err(e) => {
-                eprintln!("Error fetching food properties for {} from the FDC database: {:?}", food.name, e);
+                warn!("Error fetching food properties for {} from the FDC database: {:?}", food.name, e);
                 not_updated_foods += 1;
                 continue;
             }
@@ -85,10 +95,11 @@ fn main(){
         // Build updated food
         let (food_id, updated_food) = match create_updated_food(&food, &usda_data.food){
             Ok(props) => {
+                debug!("Build updated food for {}", food.name);
                 props
             }
             Err(e) => {
-                eprintln!("Error creating updated food for {}: {:?}", food.name, e);
+                warn!("Error creating updated food for {}: {:?}", food.name, e);
                 not_updated_foods += 1;
                 continue;
             }
@@ -98,9 +109,10 @@ fn main(){
         let _ = match update_food(&client, &tandoor_endpoint, &tandoor_api_key, &updated_food, &food_id){
             Ok(_) => {
                 updated_foods+=1;
+                info!("Successfully updated food {}", updated_food.name);
             }
             Err(e) => {
-                eprintln!("Error updating food {}: {:?}", updated_food.name, e);
+                warn!("Error updating food {}: {:?}", updated_food.name, e);
                 not_updated_foods += 1;
                 continue;
             }
@@ -109,12 +121,12 @@ fn main(){
         // Check for USDA requests left if < 20 wait a minute before continuing.
         if usda_data.requests_left < 20 {
             let sleep_time = 60;
-            println!("There are only {} requests left before being rate-limited. To prevent that the program will now sleep for {} seconds before continuing.", usda_data.requests_left, sleep_time);
+            info!("There are only {} requests left before being rate-limited. To prevent that the program will now sleep for {} seconds before continuing.", usda_data.requests_left, sleep_time);
             sleep(Duration::from_millis(sleep_time * 1000))
         }
     }
     
-    println!("Updated {} foods. {} foods were not updated successfully. {} foods did not have a FDC ID.", updated_foods, not_updated_foods, no_fdc_id);
+    info!("Updated {} foods. {} foods were not updated successfully. {} foods did not have a FDC ID.", updated_foods, not_updated_foods, no_fdc_id);
 }
 
 /// Gets all food properties of the Tandoor instance
@@ -126,6 +138,7 @@ fn main(){
 /// Vec containing a list of all properties that were returned by the Tandoor API.
 fn get_food_properties(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str) -> Result<Vec<InternalTandoorProperty>, Box<dyn Error>> {
     let url = format!("{}food-property-type/", tandoor_endpoint);
+    trace!("Getting food properties by calling {}", url);
     let response = client.get(url)
         .header("Authorization", format!("Bearer {}", tandoor_api_key))
         .send()?
@@ -148,18 +161,20 @@ fn get_foods(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str) -> 
     let mut tandoor_foods: Vec<InternalTandoorFood> = Vec::new();
     let mut expected_food_number: i32;
     loop {
+        trace!("Loading foods by calling {}", url);
         let response = client.get(&url)
             .header("Authorization", format!("Bearer {}", tandoor_api_key))
             .send()?
             .error_for_status()?;
 
         let body = response.text()?;
+        trace!("Retrieved foods from Tandoor: \n {}", body);
         let tandoor_food_api_request: InternalTandoorFoodApiResponse = serde_json::from_str(&body)?;
         tandoor_foods.extend(tandoor_food_api_request.results);
         expected_food_number = tandoor_food_api_request.count;
         if let Some(next_url) = tandoor_food_api_request.next {
             url = next_url;
-            println!("Loaded {} foods.", tandoor_foods.len())
+            debug!("Loaded {} foods.", tandoor_foods.len())
         } else {
             break;
         }
@@ -168,8 +183,6 @@ fn get_foods(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str) -> 
     if expected_food_number != i32::try_from(tandoor_foods.len())?{
         panic!("Not all foods were returned successfully. Please check the logs for more information. Stopping execution.");
     }
-    println!("Found {} foods.", tandoor_foods.len());
-
     Ok(tandoor_foods)
 }
 
@@ -188,6 +201,7 @@ fn get_food_data(client: &Client, fdc_id: &i32, usda_api_key: &str, tandoor_prop
 
     // Ask USDA database for data using the fdc_id of the food    
     let request_url = format!("https://api.nal.usda.gov/fdc/v1/food/{}?", fdc_id);
+    trace!("Getting data from FDC by calling {}", request_url);
     let response = client.get(request_url)
         .header("X-Api-Key", usda_api_key)
         .send()?
@@ -197,7 +211,7 @@ fn get_food_data(client: &Client, fdc_id: &i32, usda_api_key: &str, tandoor_prop
     let requests_left: i32 = match response.headers().get("X-RateLimit-Remaining") {
         Some(value) => value.to_str().unwrap().parse().unwrap(),
         None => {
-            eprintln!("Header not found");
+            warn!("Header indicating the requests left before being rate limited not found - Setting requests left to 0.");
             0
         }
     };
@@ -229,7 +243,6 @@ fn get_food_data(client: &Client, fdc_id: &i32, usda_api_key: &str, tandoor_prop
 /// ### Returns
 /// Tuple representing the id of the food and a food item that can be sent to the Tandoor API in order to update it or an error.
 fn create_updated_food(tandoor_food: &InternalTandoorFood, usda_food: &USDAFood) -> Result<(i32, ApiTandoorFood), Box<dyn Error>>{
-    // TODO: Add possibility to only overwrite new properties but leave others untouched.
     // Clear properties of given food
     let mut return_value = ApiTandoorFood::from(tandoor_food);
     return_value.properties.clear();
@@ -251,6 +264,7 @@ fn create_updated_food(tandoor_food: &InternalTandoorFood, usda_food: &USDAFood)
 fn update_food(client: &Client, tandoor_endpoint: &String, tandoor_api_key: &String, food: &ApiTandoorFood, food_id: &i32) -> Result<bool, Box<dyn Error>>{
     // Use given food and call Tandoor API to update food.
     let url = format!("{}food/{}/", tandoor_endpoint, food_id);
+    debug!("Calling {} to update food {}", url, food.name);
     let _ = client.patch(url)
         .header("Authorization", format!("Bearer {}", tandoor_api_key))
         .json(food)
@@ -269,6 +283,7 @@ fn get_fdc_id(food: &InternalTandoorFood) -> Option<i32>{
     // Closure to handle fallback to FDC ID field.
     let get_fdc_id_from_field = || {
         if let Some(fdc_id_of_food) = food.fdc_id.clone() {
+            trace!("Found FDC ID {} in FDC ID field.", fdc_id_of_food);
             Some(fdc_id_of_food)
         } else {
             None
@@ -280,7 +295,9 @@ fn get_fdc_id(food: &InternalTandoorFood) -> Option<i32>{
     // if no URL is set or no FDC ID can be matched from the URL, use FDC ID field.
     return if let Some(food_url) = food.url.clone() {
         if let Some(caps) = re.captures(&*food_url) {
-            Some((&caps[1]).parse().unwrap())
+            let fdc_id = (&caps[1]).parse().unwrap();
+            trace!("Found FDC ID {} in the URL field.", fdc_id);
+            Some(fdc_id)
         } else {
             get_fdc_id_from_field()
         }
