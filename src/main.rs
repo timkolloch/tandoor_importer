@@ -30,8 +30,8 @@ fn main(){
     env_logger::init();
 
     // Read app settings
-    let app_settings = fs::read_to_string("./appsettings.json").expect("Should've been able to read the file");
-    let configuration: Configuration = serde_json::from_str(&app_settings).expect("Appsettings were not well-formatted.");
+    let app_settings = fs::read_to_string("./appsettings.json").expect("The appsettings were not loaded successfully.");
+    let configuration: Configuration = serde_json::from_str(&app_settings).expect("The appsettings were not well-formatted.");
     let usda_api_key = configuration.usda_api_key;
     let tandoor_endpoint = format!("http://{}/api/", configuration.tandoor_url);
     debug!("The configured Tandoor API endpoint is: {}", tandoor_endpoint);
