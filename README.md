@@ -30,3 +30,8 @@ Because adding all the properties to a food by hand is quite annoying I built th
 1. Copy [appsettings.template.json](./appsettings.template.json) to `appsettings.json` and add your Tandoor endpoint as well as the API key to it.
 2. Run the program using `./tandoor_importer`.
 3. All food items for which a FDC ID was assigned should now have values for all your properties.
+
+## Logs
+By default, log level `error` is enabled. To run the program with a different log level please use:
+`RUST_LOG=tandoor_importer=info ./tandoor_importer` to set the log level to `info`.
+Replace `info` with the desired log level (`trace`, `debug`, `info`, `warn`, `error`)
