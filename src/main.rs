@@ -12,6 +12,7 @@ use regex::Regex;
 use reqwest::blocking::{Client};
 use log::{debug, info, warn, error, trace};
 use env_logger;
+use clap::Parser;
 
 mod models;
 use models::configuration::Configuration;
@@ -22,12 +23,18 @@ use models::tandoor::api_tandoor_food::ApiTandoorFood;
 use models::tandoor::api_tandoor_food_property::ApiTandoorFoodProperty;
 use models::usda::usda_food::USDAFood;
 use models::usda::usda_api_response::USDAApiResponse;
+use models::command_line_arguments::Args;
 
 fn main(){
-    // Create clint for api requests.
+
+    // Get command line arguments.
+    let args = Args::parse();
+
+    // Create client for api requests.
     let client = Client::new();
 
-    env_logger::init();
+    // Initialize logger (with set log level for the crate
+    env_logger::Builder::new().filter(Some(env!("CARGO_PKG_NAME")), args.log_level.into()).init();
 
     // Read app settings
     let app_settings = fs::read_to_string("./appsettings.json").expect("The appsettings were not loaded successfully.");
