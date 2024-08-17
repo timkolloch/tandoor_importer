@@ -8,7 +8,9 @@ pub struct ApiTandoorFood {
     /// The name of the food item
     pub name: String,
     /// A list holding all [ApiTandoorFoodProperty] elements of the food item.
-    pub properties: Vec<ApiTandoorFoodProperty>
+    pub properties: Vec<ApiTandoorFoodProperty>,
+    /// The FDC ID of that food.
+    pub fdc_id: Option<i32>
 }
 
 impl From<InternalTandoorFood> for ApiTandoorFood{
@@ -16,6 +18,7 @@ impl From<InternalTandoorFood> for ApiTandoorFood{
         ApiTandoorFood{
             name: value.name,
             properties: value.properties.into_iter().map(|x| ApiTandoorFoodProperty::from(x)).collect(),
+            fdc_id: value.fdc_id
         }
     }
 }
@@ -25,6 +28,7 @@ impl From<&InternalTandoorFood> for ApiTandoorFood{
         ApiTandoorFood{
             name: value.name.to_string(),
             properties: value.properties.iter().map(|x| ApiTandoorFoodProperty::from(x.clone())).collect(),
+            fdc_id: value.fdc_id
         }
     }
 }
