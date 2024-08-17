@@ -1,0 +1,13 @@
+{
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": true,
+  "release-type": "rust",
+  "include-component-in-tag": false,
+  "packages": {
+    ".": {
+      "extra-files": [
+        "README.md"
+      ]
+    }
+  }
+}
