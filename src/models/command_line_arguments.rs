@@ -11,7 +11,7 @@ pub struct Args{
     pub override_properties: bool,
 
     /// Interactive mode
-    #[arg(short, long, help = "When set the program asks the user to enter a FDC ID when none was found.")]
+    #[arg(short, long, help = "When set the program asks the user to provide an FDC ID when none was found.")]
     pub interactive: bool,
 
     /// Log level
