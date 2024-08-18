@@ -76,7 +76,16 @@ fn main(){
     let mut updated_foods: i32 = 0;
     let mut not_updated_foods: i32 = 0;
     let mut no_fdc_id: i32 = 0;
+    let mut already_fully_updated: i32 = 0;
     for mut food in tandoor_foods{
+        // Directly continue if number of properties of food is equal to number of properties
+        // retrieved from Tandoor and override is not enabled.
+        if !args.override_properties && food.properties.iter().count() == tandoor_properties.iter().count(){
+            info!("{} is already fully updated.", food.name);
+            already_fully_updated += 1;
+            continue;
+        }
+
         debug!("Going to update food {}", food.name);
         // Get data from USDA
         let fdc_id: i32;
@@ -137,7 +146,9 @@ fn main(){
         }
     }
     
-    info!("Updated {} foods. {} foods were not updated successfully. {} foods did not have a FDC ID.", updated_foods, not_updated_foods, no_fdc_id);
+    info!("Updated {} foods. \n {} foods were not updated successfully. \
+        \n {} foods did not have a FDC ID. \n {} foods were already completely updated.", 
+        updated_foods, not_updated_foods, no_fdc_id, already_fully_updated);
 }
 
 /// Gets all food properties of the Tandoor instance
