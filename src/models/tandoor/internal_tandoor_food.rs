@@ -2,7 +2,7 @@
 use serde::{Serialize, Deserialize};
 use crate::models::tandoor::internal_tandoor_food_property::InternalTandoorFoodProperty;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct InternalTandoorFood {
     /// The id of the food item.
     pub id: i32,

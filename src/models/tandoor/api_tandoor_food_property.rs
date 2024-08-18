@@ -2,7 +2,6 @@
 use serde::{Serialize, Deserialize};
 use crate::models::tandoor::api_tandoor_property::ApiTandoorProperty;
 use crate::models::tandoor::internal_tandoor_food_property::InternalTandoorFoodProperty;
-use crate::models::usda::usda_nutrient::USDANutrient;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiTandoorFoodProperty {
@@ -17,17 +16,6 @@ impl From<InternalTandoorFoodProperty> for ApiTandoorFoodProperty{
         ApiTandoorFoodProperty{
             property_amount: value.property_amount.unwrap_or(0.0).to_string(),
             property_type: ApiTandoorProperty::from(value.property_type),
-        }
-    }
-}
-
-impl From<&USDANutrient> for ApiTandoorFoodProperty{
-    fn from(value: &USDANutrient) -> Self {
-         ApiTandoorFoodProperty {
-            property_amount: value.amount.unwrap_or(0.0).to_string(),
-            property_type: ApiTandoorProperty {
-                name: value.nutrient_information.name.to_string()
-            }
         }
     }
 }
