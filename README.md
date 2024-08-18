@@ -1,20 +1,17 @@
 # Tandoor Importer
 
 ## Description
-This is a nutrient importer for [Tandoor](https://tandoor.dev/), a open source recipe manager.
+This is a nutrient importer for [Tandoor](https://tandoor.dev/), an open source recipe manager.
 Tandoor has the possibility to add `Foods` which then can be used in recipes. For the different `Foods` properties like "Sugars", "Fats" or "Energy" can be added. 
 These will be used to calculate the total nutrients of a recipe.
-Because adding all the properties to a food by hand is quite annoying I built this importer to import data provided by the [USDA Food Database](https://fdc.nal.usda.gov/fdc-app.html#/food-search?query=&type=Foundation) using the [API](https://fdc.nal.usda.gov/api-spec/fdc_api.html).
-
-## Important
-- Note that all properties previously attached to a food are overwritten.
+Because adding all the properties to a food item by hand is quite annoying I built this importer to import data provided by the [USDA Food Database](https://fdc.nal.usda.gov/fdc-app.html#/food-search?query=&type=Foundation) using the [API](https://fdc.nal.usda.gov/api-spec/fdc_api.html).
 
 ## How does it work?
 1. The program reads the [appsettings.json](./appsettings.template.json) to find the Tandoor instance and to get the needed API-Keys for Tandoor and the USDA FDC database.
 2. After that all properties and all foods are retrieved from the Tandoor instance.
-3. For each food item retrieved from Tandoor the FDC ID of that food item (the ID is retrieved primarily from the "URL" field of a `Food`. If no URL is given the program tries to get it from the "FDC ID" field) is used to query the FDC database for nutrients.
+3. For each food item retrieved from Tandoor the FDC ID of that food item (the ID is retrieved primarily from the "URL" field of a `Food`. If no URL is given the program tries to get it from the "FDC ID" field, or asks the user if the program is run in interactive mode) is used to query the FDC database for nutrients.
 4. All nutrients of a food item are retrieved, then the nutrients that are not present in Tandoor are filtered out.
-5. The data retrieved from the FDC database is added to the Tandoor food. **Note that all properties previously associated with the Tandoor food are overwritten.**
+5. The data retrieved from the FDC database is added to the Tandoor food.
 6. The updated food is pushed to the Tandoor database.
 
 ## Prerequisites
@@ -30,7 +27,7 @@ Because adding all the properties to a food by hand is quite annoying I built th
 ## Usage
 1. Copy [appsettings.template.json](./appsettings.template.json) to `appsettings.json` and add your Tandoor endpoint as well as the API key to it.
 2. Run the program using `./tandoor_importer`. Refer to the [Parameters](#parameters) section for configuration.
-3. All food items for which a FDC ID was assigned should now have values for all your properties.
+3. All food items for which an FDC ID was assigned should now have values for all your properties.
 
 ## Parameters
 
@@ -38,6 +35,8 @@ Because adding all the properties to a food by hand is quite annoying I built th
 | Name          | short name | Description                                                                 | Required? | Default |
 |---------------|------------|-----------------------------------------------------------------------------|-----------|---------|
 | --interactive | -i         | When set the program asks the user to provide an FDC ID when none was found | No        | false   |
+| --override    | -o         | When set the program overrides properties that are already present.         | No        | false   |
+
 
 ### Parameters with value
 | Name        | short name | Description                                                     | Required? | Default |
