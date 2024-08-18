@@ -19,8 +19,8 @@ use models::configuration::Configuration;
 use models::tandoor::internal_tandoor_food::InternalTandoorFood;
 use models::tandoor::internal_tandoor_food_api_response::InternalTandoorFoodApiResponse;
 use models::tandoor::internal_tandoor_property::InternalTandoorProperty;
+use models::tandoor::internal_tandoor_food_property::InternalTandoorFoodProperty;
 use models::tandoor::api_tandoor_food::ApiTandoorFood;
-use models::tandoor::api_tandoor_food_property::ApiTandoorFoodProperty;
 use models::usda::usda_food::USDAFood;
 use models::usda::usda_api_response::USDAApiResponse;
 use models::command_line_arguments::Args;
@@ -29,6 +29,8 @@ fn main(){
 
     // Get command line arguments.
     let args = Args::parse();
+    debug!("Interactive mode enabled: {}", args.interactive);
+    debug!("Override mode enabled: {}", args.override_properties);
 
     // Create client for api requests.
     let client = Client::new();
@@ -102,7 +104,7 @@ fn main(){
         };
 
         // Build updated food
-        let (food_id, updated_food) = match create_updated_food(&food, &usda_data.food){
+        let (food_id, updated_food) = match create_updated_food(&food, &usda_data.food, &args.override_properties){
             Ok(props) => {
                 debug!("Build updated food for {}", food.name);
                 props
@@ -251,14 +253,26 @@ fn get_food_data(client: &Client, fdc_id: &i32, usda_api_key: &str, tandoor_prop
 /// - usda_food: The food with its nutrients retrieved from the FoodData Central.
 /// ### Returns
 /// Tuple representing the id of the food and a food item that can be sent to the Tandoor API in order to update it or an error.
-fn create_updated_food(tandoor_food: &InternalTandoorFood, usda_food: &USDAFood) -> Result<(i32, ApiTandoorFood), Box<dyn Error>>{
-    // Clear properties of given food
-    let mut return_value = ApiTandoorFood::from(tandoor_food);
-    return_value.properties.clear();
-    for usda_nutrient in usda_food.food_nutrients.iter(){
-        return_value.properties.push(ApiTandoorFoodProperty::from(usda_nutrient));
+fn create_updated_food(tandoor_food: &InternalTandoorFood, usda_food: &USDAFood, override_properties: &bool) -> Result<(i32, ApiTandoorFood), Box<dyn Error>>{
+    let mut local_food = (*tandoor_food).clone();
+
+    // If overriding is active, simply clear all current properties so that is_id_present below is
+    // always false.
+    if *override_properties{
+        trace!("Deleting current properties of food {}.", local_food.name);
+        local_food.properties.clear();
     }
-    Ok((tandoor_food.id, return_value))
+
+    for usda_nutrient in usda_food.food_nutrients.iter(){
+        let is_id_present = local_food.properties.iter().any(|a| {
+            a.property_type.fdc_id == usda_nutrient.nutrient_information.id
+        });
+        if !is_id_present {
+            local_food.properties.push(InternalTandoorFoodProperty::from(usda_nutrient));
+            trace!("Adding property {} to food {}", usda_nutrient.nutrient_information.name, local_food.name)
+        }
+    }    
+    Ok((tandoor_food.id, ApiTandoorFood::from(local_food)))
 }
 
 /// Updates the food in the Tandoor database
