@@ -6,10 +6,11 @@
 use std::collections::HashMap;
 use std::{fs, io};
 use std::error::Error;
-use std::thread::sleep;
+use std::sync::{Arc};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use regex::Regex;
-use reqwest::blocking::{Client};
+use reqwest::{Client};
 use log::{debug, info, warn, error, trace};
 use env_logger;
 use clap::Parser;
@@ -25,15 +26,17 @@ use models::usda::usda_food::USDAFood;
 use models::usda::usda_api_response::USDAApiResponse;
 use models::command_line_arguments::Args;
 
-fn main(){
+#[tokio::main]
+async fn main(){
 
     // Get command line arguments.
     let args = Args::parse();
+    let override_properties = args.override_properties;
     debug!("Interactive mode enabled: {}", args.interactive);
     debug!("Override mode enabled: {}", args.override_properties);
 
     // Create client for api requests.
-    let client = Client::new();
+    let client = Arc::new(Client::new());
 
     // Initialize logger (with set log level for the crate
     env_logger::Builder::new().filter(Some(env!("CARGO_PKG_NAME")), args.log_level.into()).init();
@@ -48,7 +51,7 @@ fn main(){
 
     // Get Properties
     let mut tandoor_properties: Vec<InternalTandoorProperty> = Vec::new();
-    match get_food_properties(&client, &tandoor_endpoint, &tandoor_api_key) {
+    match get_food_properties(&client, &tandoor_endpoint, &tandoor_api_key).await {
         Ok(props) => {
             tandoor_properties = Some(props).unwrap();
             info!("Found {} properties.", tandoor_properties.len());
@@ -62,7 +65,7 @@ fn main(){
 
     // Get Foods
     let mut tandoor_foods: Vec<InternalTandoorFood> = Vec::new();
-    match get_foods(&client, &tandoor_endpoint, &tandoor_api_key) {
+    match get_foods(&client, &tandoor_endpoint, &tandoor_api_key).await {
         Ok(props) => {
             tandoor_foods = Some(props).unwrap();
             info!("Found {} foods.", tandoor_foods.len());
@@ -73,82 +76,117 @@ fn main(){
     }
 
     // Update the foods.
-    let mut updated_foods: i32 = 0;
-    let mut not_updated_foods: i32 = 0;
-    let mut no_fdc_id: i32 = 0;
-    let mut already_fully_updated: i32 = 0;
-    for mut food in tandoor_foods{
+    let updated_foods = Arc::new(AtomicUsize::new(0));
+    let not_updated_foods = Arc::new(AtomicUsize::new(0));
+    let no_fdc_id = Arc::new(AtomicUsize::new(0));
+    let already_fully_updated = Arc::new(AtomicUsize::new(0));
+    let number_of_properties =  tandoor_properties.iter().count();
+    let mut handles = vec![];
+    for mut food in tandoor_foods.into_iter(){
         // Directly continue if number of properties of food is equal to number of properties
         // retrieved from Tandoor and override is not enabled.
-        if !args.override_properties && food.properties.iter().count() == tandoor_properties.iter().count(){
+        if !args.override_properties && food.properties.iter().count() == number_of_properties{
             info!("{} is already fully updated.", food.name);
-            already_fully_updated += 1;
-            continue;
-        }
-
-        debug!("Going to update food {}", food.name);
-        // Get data from USDA
-        let fdc_id: i32;
-        if let Some(id) = get_fdc_id(&food, &args.interactive){
-            debug!("Found FDC ID {} for food {}.", id, food.name);
-            fdc_id = id
-        }else{
-            warn!("Food {} does not have a FDC ID and will not be updated.", food.name);
-            no_fdc_id += 1;
+            {
+                already_fully_updated.fetch_add(1, Ordering::SeqCst);  // Lock the mutex to modify the shared counter
+            }
             continue;
         }
         
-        let usda_data = match get_food_data(&client, &fdc_id, &usda_api_key, &tandoor_property_id_name) {
-            Ok(props) => {
-                debug!("Fetched properties for food {} from the USDA FDC database using {} as the ID", food.name, fdc_id);
-                // When fetching the data was successful, override FDC ID field with the used one.
-                food.fdc_id = Some(fdc_id);
-                props
+        let client = Arc::clone(&client);
+        let tandoor_property_id_name = tandoor_property_id_name.clone();
+        let override_properties = override_properties.clone();
+        let tandoor_endpoint = tandoor_endpoint.clone();
+        let tandoor_api_key = tandoor_api_key.clone();
+        let usda_api_key = usda_api_key.clone();
+        let updated_foods = Arc::clone(&updated_foods);
+        let not_updated_foods = Arc::clone(&not_updated_foods);
+        let no_fdc_id = Arc::clone(&no_fdc_id);
+        
+        let handle = tokio::spawn(async move{
+            debug!("Going to update food {}", food.name);
+            // Get data from USDA
+            let fdc_id: i32;
+            if let Some(id) = get_fdc_id(&food, &args.interactive){
+                debug!("Found FDC ID {} for food {}.", id, food.name);
+                fdc_id = id
+            }else{
+                warn!("Food {} does not have a FDC ID and will not be updated.", food.name);
+                {
+                    no_fdc_id.fetch_add(1, Ordering::SeqCst);
+                }
+                return;
             }
-            Err(e) => {
-                warn!("Error fetching food properties for {} from the FDC database: {:?}", food.name, e);
-                not_updated_foods += 1;
-                continue;
-            }
-        };
 
-        // Build updated food
-        let (food_id, updated_food) = match create_updated_food(&food, &usda_data.food, &args.override_properties){
-            Ok(props) => {
-                debug!("Build updated food for {}", food.name);
-                props
-            }
-            Err(e) => {
-                warn!("Error creating updated food for {}: {:?}", food.name, e);
-                not_updated_foods += 1;
-                continue;
-            }
-        };
+            let usda_data = match get_food_data(&client, &fdc_id, &usda_api_key, &tandoor_property_id_name).await {
+                Ok(props) => {
+                    debug!("Fetched properties for food {} from the USDA FDC database using {} as the ID", food.name, fdc_id);
+                    // When fetching the data was successful, override FDC ID field with the used one.
+                    food.fdc_id = Some(fdc_id);
+                    props
+                }
+                Err(e) => {
+                    warn!("Error fetching food properties for {} from the FDC database: {:?}", food.name, e);
+                    {
+                        not_updated_foods.fetch_add(1, Ordering::SeqCst);
+                    }
+                    return;
+                }
+            };
 
-        // Update food in Tandoor database.
-        let _ = match update_food(&client, &tandoor_endpoint, &tandoor_api_key, &updated_food, &food_id){
-            Ok(_) => {
-                updated_foods+=1;
-                info!("Successfully updated food {}", updated_food.name);
-            }
-            Err(e) => {
-                warn!("Error updating food {}: {:?}", updated_food.name, e);
-                not_updated_foods += 1;
-                continue;
-            }
-        };
+            // Build updated food
+            let (food_id, updated_food) = match create_updated_food(&food, &usda_data.food, &override_properties){
+                Ok(props) => {
+                    debug!("Build updated food for {}", food.name);
+                    props
+                }
+                Err(e) => {
+                    warn!("Error creating updated food for {}: {:?}", food.name, e);
+                    {
+                        not_updated_foods.fetch_add(1, Ordering::SeqCst);
+                    }
+                    return;
+                }
+            };
 
-        // Check for USDA requests left if < 20 wait a minute before continuing.
-        if usda_data.requests_left < 20 {
-            let sleep_time = 60;
-            info!("There are only {} requests left before being rate-limited. To prevent that the program will now sleep for {} seconds before continuing.", usda_data.requests_left, sleep_time);
-            sleep(Duration::from_millis(sleep_time * 1000))
-        }
+            // Update food in Tandoor database.
+            let _ = match update_food(&client, &tandoor_endpoint, &tandoor_api_key, &updated_food, &food_id).await{
+                Ok(_) => {
+                    {
+                        updated_foods.fetch_add(1, Ordering::SeqCst);
+                        info!("Successfully updated food {}", updated_food.name);
+                    }
+                }
+                Err(e) => {
+                    warn!("Error updating food {}: {:?}", updated_food.name, e);
+                    { 
+                        not_updated_foods.fetch_add(1, Ordering::SeqCst);
+                    }
+                    return;
+                }
+            };
+
+            // Check for USDA requests left if < 20 wait a minute before continuing.
+            if usda_data.requests_left < 20 {
+                let sleep_time = 60;
+                info!("There are only {} requests left before being rate-limited. To prevent that the program will now sleep for {} seconds before continuing.", usda_data.requests_left, sleep_time);
+                tokio::time::sleep(Duration::from_millis(sleep_time * 1000)).await;
+            }
+        });
+        
+        handles.push(handle);
     }
     
-    info!("Updated {} foods. \n {} foods were not updated successfully. \
+    for handle in handles{
+        handle.await.expect("TODO: panic message");
+    }
+    
+    info!("\n {} foods successfully updated. \n {} foods were not updated successfully. \
         \n {} foods did not have a FDC ID. \n {} foods were already completely updated.", 
-        updated_foods, not_updated_foods, no_fdc_id, already_fully_updated);
+        updated_foods.load(Ordering::SeqCst), 
+        not_updated_foods.load(Ordering::SeqCst), 
+        no_fdc_id.load(Ordering::SeqCst), 
+        already_fully_updated.load(Ordering::SeqCst));
 }
 
 /// Gets all food properties of the Tandoor instance
@@ -158,15 +196,16 @@ fn main(){
 /// - tandoor_api_key: The API key to interact with the Tandoor API
 /// ### Returns
 /// Vec containing a list of all properties that were returned by the Tandoor API.
-fn get_food_properties(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str) -> Result<Vec<InternalTandoorProperty>, Box<dyn Error>> {
+async fn get_food_properties(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str) -> Result<Vec<InternalTandoorProperty>, Box<dyn Error>> {
     let url = format!("{}food-property-type/", tandoor_endpoint);
     trace!("Getting food properties by calling {}", url);
     let response = client.get(url)
         .header("Authorization", format!("Bearer {}", tandoor_api_key))
-        .send()?
+        .send()
+        .await?
         .error_for_status()?;
 
-    let body = response.text()?;
+    let body = response.text().await?;
     let properties: Vec<InternalTandoorProperty> = serde_json::from_str(&body)?;
     Ok(properties)
 }
@@ -178,7 +217,7 @@ fn get_food_properties(client: &Client, tandoor_endpoint: &str, tandoor_api_key:
 /// - tandoor_api_key: The API key to interact with the Tandoor API
 /// ### Returns
 /// Vec containing a list of all foods that were returned by the Tandoor API.
-fn get_foods(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str) -> Result<Vec<InternalTandoorFood>, Box<dyn Error>>{
+async fn get_foods(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str) -> Result<Vec<InternalTandoorFood>, Box<dyn Error>>{
     let mut url = format!("{}food/", tandoor_endpoint);
     let mut tandoor_foods: Vec<InternalTandoorFood> = Vec::new();
     let mut expected_food_number: i32;
@@ -186,10 +225,11 @@ fn get_foods(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str) -> 
         trace!("Loading foods by calling {}", url);
         let response = client.get(&url)
             .header("Authorization", format!("Bearer {}", tandoor_api_key))
-            .send()?
+            .send()
+            .await?
             .error_for_status()?;
 
-        let body = response.text()?;
+        let body = response.text().await?;
         trace!("Retrieved foods from Tandoor: \n {}", body);
         let tandoor_food_api_request: InternalTandoorFoodApiResponse = serde_json::from_str(&body)?;
         tandoor_foods.extend(tandoor_food_api_request.results);
@@ -219,14 +259,15 @@ fn get_foods(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str) -> 
 /// ### Remarks
 /// As the Tandoor API requires a property that we want to add to be identified by the name of the property we need to replace the name of FDC food property 
 /// with the name the user set in the Tandoor instance. Thus, we need the property name and not only the property id.
-fn get_food_data(client: &Client, fdc_id: &i32, usda_api_key: &str, tandoor_property_id_name: &HashMap<i32, String>) -> Result<USDAApiResponse, Box<dyn Error>>{
+async fn get_food_data(client: &Client, fdc_id: &i32, usda_api_key: &str, tandoor_property_id_name: &HashMap<i32, String>) -> Result<USDAApiResponse, Box<dyn Error>>{
 
     // Ask USDA database for data using the fdc_id of the food    
     let request_url = format!("https://api.nal.usda.gov/fdc/v1/food/{}?", fdc_id);
     trace!("Getting data from FDC by calling {}", request_url);
     let response = client.get(request_url)
         .header("X-Api-Key", usda_api_key)
-        .send()?
+        .send()
+        .await?
         .error_for_status()?;
 
     // Remember the requests we have left, so we do not get blocked.
@@ -237,7 +278,7 @@ fn get_food_data(client: &Client, fdc_id: &i32, usda_api_key: &str, tandoor_prop
             0
         }
     };
-    let body = response.text()?;
+    let body = response.text().await?;
     let mut food: USDAFood = serde_json::from_str(&body)?;
     
     // Filter the properties out that we do not want
@@ -295,14 +336,15 @@ fn create_updated_food(tandoor_food: &InternalTandoorFood, usda_food: &USDAFood,
 /// - food_id: The id of the food that should be updated with the data given by 'food' parameter
 /// ### Returns
 /// boolean indicating success of the update or an error.
-fn update_food(client: &Client, tandoor_endpoint: &String, tandoor_api_key: &String, food: &ApiTandoorFood, food_id: &i32) -> Result<bool, Box<dyn Error>>{
+async fn update_food(client: &Client, tandoor_endpoint: &String, tandoor_api_key: &String, food: &ApiTandoorFood, food_id: &i32) -> Result<bool, Box<dyn Error>>{
     // Use given food and call Tandoor API to update food.
     let url = format!("{}food/{}/", tandoor_endpoint, food_id);
     debug!("Calling {} to update food {}", url, food.name);
     let _ = client.patch(url)
         .header("Authorization", format!("Bearer {}", tandoor_api_key))
         .json(food)
-        .send()?
+        .send()
+        .await?
         .error_for_status()?;
     Ok(true)
 }
