@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/timkolloch/tandoor_importer/compare/v2.0.0...v2.1.0) (2025-05-20)
+
+
+### Features
+
+* **main:** Async calls and tasks ([2c93e74](https://github.com/timkolloch/tandoor_importer/commit/2c93e74b86d40c8a4a3b409a35aaaedcf530af7b))
+
 ## [2.0.0](https://github.com/timkolloch/tandoor_importer/compare/v1.2.0...v2.0.0) (2024-08-18)
 
 
