@@ -52,7 +52,7 @@ async fn main(){
 
     // Get Properties
     let mut tandoor_properties: Vec<InternalTandoorProperty> = Vec::new();
-    match get_food_properties(&client, &tandoor_endpoint, &tandoor_api_key).await {
+    match get_food_properties(&client, &tandoor_endpoint, &tandoor_api_key, &tandoor_version).await {
         Ok(props) => {
             tandoor_properties = Some(props).unwrap();
             info!("Found {} properties.", tandoor_properties.len());
@@ -197,8 +197,8 @@ async fn main(){
 /// - tandoor_api_key: The API key to interact with the Tandoor API
 /// ### Returns
 /// Vec containing a list of all properties that were returned by the Tandoor API.
-async fn get_food_properties(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str) -> Result<Vec<InternalTandoorProperty>, Box<dyn Error>> {
-    let url = if (tandoor_version == legacy) { format!("{}food-property-type/", tandoor_endpoint) } else { format!("{}property-type/", tandoor_endpoint) };
+async fn get_food_properties(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str, tandoor_version: &str) -> Result<Vec<InternalTandoorProperty>, Box<dyn Error>> {
+    let url = if (tandoor_version == "legacy") { format!("{}food-property-type/", tandoor_endpoint) } else { format!("{}property-type/", tandoor_endpoint) };
     trace!("Getting food properties by calling {}", url);
     let response = client.get(url)
         .header("Authorization", format!("Bearer {}", tandoor_api_key))
