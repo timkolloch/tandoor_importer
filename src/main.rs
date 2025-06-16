@@ -20,6 +20,7 @@ use models::configuration::Configuration;
 use models::tandoor::internal_tandoor_food::InternalTandoorFood;
 use models::tandoor::internal_tandoor_food_api_response::InternalTandoorFoodApiResponse;
 use models::tandoor::internal_tandoor_property::InternalTandoorProperty;
+use models::tandoor::internal_tandoor_property_api_response::InternalTandoorPropertyApiResponse;
 use models::tandoor::internal_tandoor_food_property::InternalTandoorFoodProperty;
 use models::tandoor::api_tandoor_food::ApiTandoorFood;
 use models::usda::usda_food::USDAFood;
@@ -48,10 +49,11 @@ async fn main(){
     let tandoor_endpoint = format!("http://{}/api/", configuration.tandoor_url);
     debug!("The configured Tandoor API endpoint is: {}", tandoor_endpoint);
     let tandoor_api_key = configuration.tandoor_api_key;
+    let tandoor_version = configuration.tandoor_version;
 
     // Get Properties
     let mut tandoor_properties: Vec<InternalTandoorProperty> = Vec::new();
-    match get_food_properties(&client, &tandoor_endpoint, &tandoor_api_key).await {
+    match get_food_properties(&client, &tandoor_endpoint, &tandoor_api_key, &tandoor_version).await {
         Ok(props) => {
             tandoor_properties = Some(props).unwrap();
             info!("Found {} properties.", tandoor_properties.len());
@@ -196,8 +198,8 @@ async fn main(){
 /// - tandoor_api_key: The API key to interact with the Tandoor API
 /// ### Returns
 /// Vec containing a list of all properties that were returned by the Tandoor API.
-async fn get_food_properties(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str) -> Result<Vec<InternalTandoorProperty>, Box<dyn Error>> {
-    let url = format!("{}food-property-type/", tandoor_endpoint);
+async fn get_food_properties(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str, tandoor_version: &str) -> Result<Vec<InternalTandoorProperty>, Box<dyn Error>> {
+    let url = if tandoor_version == "legacy" { format!("{}food-property-type/", tandoor_endpoint) } else { format!("{}property-type/", tandoor_endpoint) };
     trace!("Getting food properties by calling {}", url);
     let response = client.get(url)
         .header("Authorization", format!("Bearer {}", tandoor_api_key))
@@ -205,8 +207,9 @@ async fn get_food_properties(client: &Client, tandoor_endpoint: &str, tandoor_ap
         .await?
         .error_for_status()?;
 
-    let body = response.text().await?;
-    let properties: Vec<InternalTandoorProperty> = serde_json::from_str(&body)?;
+    let body: String = response.text().await?;
+    let parsed: InternalTandoorPropertyApiResponse = serde_json::from_str::<InternalTandoorPropertyApiResponse>(&body)?;
+    let properties: Vec<InternalTandoorProperty> = parsed.results;
     Ok(properties)
 }
 
@@ -374,7 +377,7 @@ fn get_fdc_id(food: &InternalTandoorFood, is_interactive: &bool) -> Option<i32>{
     let re = Regex::new(r"food-details/(\d+)/nutrients").unwrap();
     // If URL is set use that to get FDC ID
     // if no URL is set or no FDC ID can be matched from the URL, use FDC ID field.
-    return if let Some(food_url) = food.url.clone() {
+    if let Some(food_url) = food.url.clone() {
         if let Some(caps) = re.captures(&*food_url) {
             let fdc_id = (&caps[1]).parse().unwrap();
             trace!("Found FDC ID {} in the URL field.", fdc_id);
