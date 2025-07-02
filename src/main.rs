@@ -61,7 +61,7 @@ async fn main(){
 
     // Get Properties
     let mut tandoor_properties: Vec<InternalTandoorProperty> = Vec::new();
-    match get_food_properties(&client, &tandoor_endpoint.get_endpoint_properties(), &tandoor_api_key).await {
+    match get_food_properties(&client, &tandoor_endpoint.get_endpoint_properties(), &tandoor_api_key, &tandoor_endpoint.get_version()).await {
         Ok(props) => {
             tandoor_properties = Some(props).unwrap();
             info!("Found {} properties.", tandoor_properties.len());
@@ -204,9 +204,10 @@ async fn main(){
 /// - client: The client used for any http requests
 /// - tandoor_properties_endpoint: The endpoint of the Tandoor instance to retrieve food properties.
 /// - tandoor_api_key: The API key to interact with the Tandoor API
+/// - tandoor_version: The version of the Tandoor instance used.
 /// ### Returns
 /// Vec containing a list of all properties that were returned by the Tandoor API.
-async fn get_food_properties(client: &Client, tandoor_properties_endpoint: &str, tandoor_api_key: &str) -> Result<Vec<InternalTandoorProperty>, Box<dyn Error>> {
+async fn get_food_properties(client: &Client, tandoor_properties_endpoint: &str, tandoor_api_key: &str, tandoor_version: &str) -> Result<Vec<InternalTandoorProperty>, Box<dyn Error>> {
     trace!("Getting food properties by calling {}", tandoor_properties_endpoint);
 
     let response = client.get(tandoor_properties_endpoint)
@@ -216,8 +217,16 @@ async fn get_food_properties(client: &Client, tandoor_properties_endpoint: &str,
         .error_for_status()?;
 
     let body: String = response.text().await?;
-    let parsed: InternalTandoorPropertyApiResponse = serde_json::from_str::<InternalTandoorPropertyApiResponse>(&body)?;
-    let properties: Vec<InternalTandoorProperty> = parsed.results;
+    // WORKAROUND This is a workaround to be able to adhere to further API changes made from version
+    // 1 to version 2 as the response for properties changed.
+    // Correct behavior needs to be implemented.
+    let properties: Vec<InternalTandoorProperty> = if tandoor_version == "v2" {
+        let parsed: InternalTandoorPropertyApiResponse = serde_json::from_str(&body)?;
+        parsed.results
+    } else {
+        serde_json::from_str(&body)?
+    };
+    
     Ok(properties)
 }
 
