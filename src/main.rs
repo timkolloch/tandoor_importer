@@ -23,6 +23,7 @@ use models::tandoor::internal_tandoor_property::InternalTandoorProperty;
 use models::tandoor::internal_tandoor_property_api_response::InternalTandoorPropertyApiResponse;
 use models::tandoor::internal_tandoor_food_property::InternalTandoorFoodProperty;
 use models::tandoor::api_tandoor_food::ApiTandoorFood;
+use models::tandoor::api_tandoor_endpoints::ApiEndpoints;
 use models::usda::usda_food::USDAFood;
 use models::usda::usda_api_response::USDAApiResponse;
 use models::command_line_arguments::Args;
@@ -42,18 +43,25 @@ async fn main(){
     // Initialize logger (with set log level for the crate
     env_logger::Builder::new().filter(Some(env!("CARGO_PKG_NAME")), args.log_level.into()).init();
 
-    // Read app settings
+    // Read app settings and setup API endpoints
     let app_settings = fs::read_to_string("./appsettings.json").expect("The appsettings were not loaded successfully.");
     let configuration: Configuration = serde_json::from_str(&app_settings).expect("The appsettings were not well-formatted.");
     let usda_api_key = configuration.usda_api_key;
-    let tandoor_endpoint = format!("http://{}/api/", configuration.tandoor_url);
-    debug!("The configured Tandoor API endpoint is: {}", tandoor_endpoint);
     let tandoor_api_key = configuration.tandoor_api_key;
-    let tandoor_version = configuration.tandoor_version;
+
+    let tandoor_endpoint = Arc::new(match ApiEndpoints::new(configuration.tandoor_version.as_str(), configuration.tandoor_url.as_str()){
+        Ok(endpoint) => endpoint,
+        Err(err_msg) => {
+            eprintln!("Error creating API endpoints: {}", err_msg);
+            return;
+        }
+    });
+    debug!("The configured Tandoor API endpoint is: {}", tandoor_endpoint.get_base_url());
+    debug!("The configured Tandoor API version is: {}", tandoor_endpoint.get_version());
 
     // Get Properties
     let mut tandoor_properties: Vec<InternalTandoorProperty> = Vec::new();
-    match get_food_properties(&client, &tandoor_endpoint, &tandoor_api_key, &tandoor_version).await {
+    match get_food_properties(&client, &tandoor_endpoint.get_endpoint_properties(), &tandoor_api_key).await {
         Ok(props) => {
             tandoor_properties = Some(props).unwrap();
             info!("Found {} properties.", tandoor_properties.len());
@@ -67,7 +75,7 @@ async fn main(){
 
     // Get Foods
     let mut tandoor_foods: Vec<InternalTandoorFood> = Vec::new();
-    match get_foods(&client, &tandoor_endpoint, &tandoor_api_key).await {
+    match get_foods(&client, &tandoor_endpoint.get_endpoint_food(), &tandoor_api_key).await {
         Ok(props) => {
             tandoor_foods = Some(props).unwrap();
             info!("Found {} foods.", tandoor_foods.len());
@@ -98,12 +106,12 @@ async fn main(){
         let client = Arc::clone(&client);
         let tandoor_property_id_name = tandoor_property_id_name.clone();
         let override_properties = override_properties.clone();
-        let tandoor_endpoint = tandoor_endpoint.clone();
         let tandoor_api_key = tandoor_api_key.clone();
         let usda_api_key = usda_api_key.clone();
         let updated_foods = Arc::clone(&updated_foods);
         let not_updated_foods = Arc::clone(&not_updated_foods);
         let no_fdc_id = Arc::clone(&no_fdc_id);
+        let tandoor_endpoint = Arc::clone(&tandoor_endpoint);
         
         let handle = tokio::spawn(async move{
             debug!("Going to update food {}", food.name);
@@ -152,7 +160,7 @@ async fn main(){
             };
 
             // Update food in Tandoor database.
-            let _ = match update_food(&client, &tandoor_endpoint, &tandoor_api_key, &updated_food, &food_id).await{
+            let _ = match update_food(&client, tandoor_endpoint.get_endpoint_food(), &tandoor_api_key, &updated_food, &food_id).await{
                 Ok(_) => {
                     {
                         updated_foods.fetch_add(1, Ordering::SeqCst);
@@ -194,15 +202,15 @@ async fn main(){
 /// Gets all food properties of the Tandoor instance
 /// ### Parameters
 /// - client: The client used for any http requests
-/// - tandoor_endpoint: The endpoint of the Tandoor instance.
+/// - tandoor_properties_endpoint: The endpoint of the Tandoor instance to retrieve food properties.
 /// - tandoor_api_key: The API key to interact with the Tandoor API
 /// ### Returns
 /// Vec containing a list of all properties that were returned by the Tandoor API.
-async fn get_food_properties(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str, tandoor_version: &str) -> Result<Vec<InternalTandoorProperty>, Box<dyn Error>> {
-    let url = if tandoor_version == "legacy" { format!("{}food-property-type/", tandoor_endpoint) } else { format!("{}property-type/", tandoor_endpoint) };
-    trace!("Getting food properties by calling {}", url);
-    let response = client.get(url)
-        .header("Authorization", format!("Bearer {}", tandoor_api_key))
+async fn get_food_properties(client: &Client, tandoor_properties_endpoint: &str, tandoor_api_key: &str) -> Result<Vec<InternalTandoorProperty>, Box<dyn Error>> {
+    trace!("Getting food properties by calling {}", tandoor_properties_endpoint);
+
+    let response = client.get(tandoor_properties_endpoint)
+        .bearer_auth(tandoor_api_key)
         .send()
         .await?
         .error_for_status()?;
@@ -216,18 +224,18 @@ async fn get_food_properties(client: &Client, tandoor_endpoint: &str, tandoor_ap
 /// Gets all foods of the Tandoor instance
 /// ### Parameters
 /// - client: The client used for any http requests
-/// - tandoor_endpoint: The endpoint of the Tandoor instance.
+/// - tandoor_food_endpoint: The endpoint of the Tandoor instance to retrieve foods.
 /// - tandoor_api_key: The API key to interact with the Tandoor API
 /// ### Returns
 /// Vec containing a list of all foods that were returned by the Tandoor API.
-async fn get_foods(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &str) -> Result<Vec<InternalTandoorFood>, Box<dyn Error>>{
-    let mut url = format!("{}food/", tandoor_endpoint);
+async fn get_foods(client: &Client, tandoor_food_endpoint: &str, tandoor_api_key: &str) -> Result<Vec<InternalTandoorFood>, Box<dyn Error>>{
+    let mut current_url = tandoor_food_endpoint.to_string();
     let mut tandoor_foods: Vec<InternalTandoorFood> = Vec::new();
     let mut expected_food_number: i32;
     loop {
-        trace!("Loading foods by calling {}", url);
-        let response = client.get(&url)
-            .header("Authorization", format!("Bearer {}", tandoor_api_key))
+        trace!("Loading foods by calling {}", current_url);
+        let response = client.get(current_url)
+            .bearer_auth(tandoor_api_key)
             .send()
             .await?
             .error_for_status()?;
@@ -238,7 +246,7 @@ async fn get_foods(client: &Client, tandoor_endpoint: &str, tandoor_api_key: &st
         tandoor_foods.extend(tandoor_food_api_request.results);
         expected_food_number = tandoor_food_api_request.count;
         if let Some(next_url) = tandoor_food_api_request.next {
-            url = next_url;
+            current_url = next_url;
             debug!("Loaded {} foods.", tandoor_foods.len())
         } else {
             break;
@@ -333,18 +341,18 @@ fn create_updated_food(tandoor_food: &InternalTandoorFood, usda_food: &USDAFood,
 /// Updates the food in the Tandoor database
 /// ### Parameters
 /// - client: The client used for any http requests.
-/// - tandoor_endpoint: The endpoint of the Tandoor instance.
+/// - tandoor_food_endpoint: The endpoint of the Tandoor instance to retrieve foods.
 /// - tandoor_api_key: The API key to interact with the Tandoor API
 /// - food: The food data that should be sent to the API
 /// - food_id: The id of the food that should be updated with the data given by 'food' parameter
 /// ### Returns
 /// boolean indicating success of the update or an error.
-async fn update_food(client: &Client, tandoor_endpoint: &String, tandoor_api_key: &String, food: &ApiTandoorFood, food_id: &i32) -> Result<bool, Box<dyn Error>>{
+async fn update_food(client: &Client, tandoor_food_endpoint: &String, tandoor_api_key: &String, food: &ApiTandoorFood, food_id: &i32) -> Result<bool, Box<dyn Error>>{
     // Use given food and call Tandoor API to update food.
-    let url = format!("{}food/{}/", tandoor_endpoint, food_id);
+    let url = format!("{}{}/", tandoor_food_endpoint, food_id);
     debug!("Calling {} to update food {}", url, food.name);
     let _ = client.patch(url)
-        .header("Authorization", format!("Bearer {}", tandoor_api_key))
+        .bearer_auth(tandoor_api_key)
         .json(food)
         .send()
         .await?
