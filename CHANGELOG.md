@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.1](https://github.com/timkolloch/tandoor_importer/compare/v2.1.0...v2.1.1) (2025-07-02)
+
+
+### Bug Fixes
+
+* Added distinction in property deserialization due to API changes in v2 ([76c7803](https://github.com/timkolloch/tandoor_importer/commit/76c7803b185d86d5e580c8062d6db1e145a14b4c))
+* Added support for different APi versions ([d7df1cf](https://github.com/timkolloch/tandoor_importer/commit/d7df1cf8f3821bd2d9b8505760e4873336d126df))
+* Handling change in object format returned from API ([7938b2f](https://github.com/timkolloch/tandoor_importer/commit/7938b2fa2f67951d4bdc9b92298e99aa262267be))
+
 ## [2.1.0](https://github.com/timkolloch/tandoor_importer/compare/v2.0.0...v2.1.0) (2025-05-20)
 
 
