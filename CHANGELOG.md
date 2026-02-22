@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.2.0](https://github.com/timkolloch/tandoor_importer/compare/v2.1.1...v2.2.0) (2026-02-22)
+
+
+### Features
+
+* ignore properties that do not have an FDC ID set. ([46de394](https://github.com/timkolloch/tandoor_importer/commit/46de394f38584e2ba998ea211b7c0f6af3455aa4))
+* improved model ([41edd93](https://github.com/timkolloch/tandoor_importer/commit/41edd93deb7939f8e64a2ff97aaba312da7d1c3b))
+
+
+### Bug Fixes
+
+* keep properties if no ID is in database in override mode ([884ac7d](https://github.com/timkolloch/tandoor_importer/commit/884ac7d570a8e2eed8572fbf3bc498c509b677db))
+
 ## [2.1.1](https://github.com/timkolloch/tandoor_importer/compare/v2.1.0...v2.1.1) (2025-07-02)
 
 
