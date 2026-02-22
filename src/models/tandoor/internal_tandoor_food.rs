@@ -1,5 +1,6 @@
 //! Holds a food item as it is returned from the database.
 use serde::{Serialize, Deserialize};
+use crate::models::tandoor::api_tandoor_food::ApiTandoorFood;
 use crate::models::tandoor::internal_tandoor_food_property::InternalTandoorFoodProperty;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -14,4 +15,21 @@ pub struct InternalTandoorFood {
     pub properties: Vec<InternalTandoorFoodProperty>,
     /// URL of the food in the FDC database.
     pub url: Option<String>,
+}
+
+impl TryFrom<ApiTandoorFood> for InternalTandoorFood {
+    type Error = ();
+    fn try_from(value: ApiTandoorFood) -> Result<Self, Self::Error> {
+        Ok(Self{
+            id: value.id,
+            name: value.name,
+            fdc_id: value.fdc_id,
+            properties: value.properties
+                .into_iter()
+                .map(|api_food_property| InternalTandoorFoodProperty::try_from(api_food_property))
+                .filter_map(Result::ok)
+                .collect(),
+            url: value.url,
+        })
+    }
 }
