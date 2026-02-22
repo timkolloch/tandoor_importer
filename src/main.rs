@@ -18,15 +18,16 @@ use clap::Parser;
 mod models;
 use models::configuration::Configuration;
 use models::tandoor::internal_tandoor_food::InternalTandoorFood;
-use models::tandoor::internal_tandoor_food_api_response::InternalTandoorFoodApiResponse;
+use models::tandoor::api_tandoor_food_response::ApiFoodResponse;
 use models::tandoor::internal_tandoor_property::InternalTandoorProperty;
-use models::tandoor::internal_tandoor_property_api_response::InternalTandoorPropertyApiResponse;
+use models::tandoor::api_tandoor_property_response::ApiPropertyTypeResponse;
 use models::tandoor::internal_tandoor_food_property::InternalTandoorFoodProperty;
 use models::tandoor::api_tandoor_food::ApiTandoorFood;
 use models::tandoor::api_tandoor_endpoints::ApiEndpoints;
 use models::usda::usda_food::USDAFood;
 use models::usda::usda_api_response::USDAApiResponse;
 use models::command_line_arguments::Args;
+use crate::models::tandoor::api_tandoor_property::ApiTandoorProperty;
 
 #[tokio::main]
 async fn main(){
@@ -221,10 +222,10 @@ async fn get_food_properties(client: &Client, tandoor_properties_endpoint: &str,
     // 1 to version 2 as the response for properties changed.
     // Correct behavior needs to be implemented.
     let properties: Vec<InternalTandoorProperty> = if tandoor_version == "v2" {
-        let parsed: InternalTandoorPropertyApiResponse = serde_json::from_str(&body)?;
-        parsed.results
+        let parsed: ApiPropertyTypeResponse = serde_json::from_str(&body)?;
+        filter_properties_without_fdc_id(parsed.results)
     } else {
-        serde_json::from_str(&body)?
+        filter_properties_without_fdc_id(serde_json::from_str(&body)?)
     };
     
     Ok(properties)
@@ -251,10 +252,16 @@ async fn get_foods(client: &Client, tandoor_food_endpoint: &str, tandoor_api_key
 
         let body = response.text().await?;
         trace!("Retrieved foods from Tandoor: \n {}", body);
-        let tandoor_food_api_request: InternalTandoorFoodApiResponse = serde_json::from_str(&body)?;
-        tandoor_foods.extend(tandoor_food_api_request.results);
-        expected_food_number = tandoor_food_api_request.count;
-        if let Some(next_url) = tandoor_food_api_request.next {
+        let tandoor_food_api_response: ApiFoodResponse = serde_json::from_str(&body)?;
+        
+        tandoor_foods.extend(
+            tandoor_food_api_response.results
+                .into_iter()
+                .filter_map(|result| InternalTandoorFood::try_from(result).ok())
+        );
+        
+        expected_food_number = tandoor_food_api_response.count;
+        if let Some(next_url) = tandoor_food_api_response.next {
             current_url = next_url;
             debug!("Loaded {} foods.", tandoor_foods.len())
         } else {
@@ -437,4 +444,16 @@ fn get_fdc_id_from_user_input(food: &InternalTandoorFood) -> Option<i32>{
             },
         };
     }
+}
+
+/// Filters out the tandoor properties that do not have an FDC ID set.
+/// ### Parameters
+/// - properties: The list of properties (may contain properties with and without FDC ID)
+/// ### Returns
+/// Vec<InternalTandoorProperty> containing all properties with an FDC ID set.
+fn filter_properties_without_fdc_id(properties: Vec<ApiTandoorProperty>) -> Vec<InternalTandoorProperty>{
+    properties
+        .into_iter()
+        .filter_map(|property|{InternalTandoorProperty::try_from(property) .ok()})
+        .collect()
 }
