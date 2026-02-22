@@ -6,7 +6,7 @@ use crate::models::tandoor::internal_tandoor_food_property::InternalTandoorFoodP
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiTandoorFoodProperty {
     /// The amount of the property that is in the food.
-    pub property_amount: String,
+    pub property_amount: f32,
     /// The property definition.
     pub property_type: ApiTandoorProperty
 }
@@ -14,7 +14,7 @@ pub struct ApiTandoorFoodProperty {
 impl From<InternalTandoorFoodProperty> for ApiTandoorFoodProperty{
     fn from(value: InternalTandoorFoodProperty) -> Self {
         ApiTandoorFoodProperty{
-            property_amount: value.property_amount.unwrap_or(0.0).to_string(),
+            property_amount: value.property_amount.unwrap(),
             property_type: ApiTandoorProperty::from(value.property_type),
         }
     }

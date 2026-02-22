@@ -1,6 +1,6 @@
 //! Represents a property a concrete [InternalTandoorFood] has.
 use serde::{Serialize, Deserialize};
-
+use crate::models::tandoor::api_tandoor_food_property::ApiTandoorFoodProperty;
 use crate::models::tandoor::internal_tandoor_property::InternalTandoorProperty;
 use crate::models::usda::usda_nutrient::USDANutrient;
 
@@ -21,5 +21,16 @@ impl From<&USDANutrient> for InternalTandoorFoodProperty{
                 fdc_id: value.nutrient_information.id
             }
         }
+    }
+}
+
+impl TryFrom<ApiTandoorFoodProperty> for InternalTandoorFoodProperty {
+    type Error = ();
+    
+    fn try_from(value: ApiTandoorFoodProperty) -> Result<Self, Self::Error> {
+        Ok(Self{
+            property_amount: Option::from(value.property_amount),
+            property_type: InternalTandoorProperty::try_from(value.property_type)?,
+        })
     }
 }
