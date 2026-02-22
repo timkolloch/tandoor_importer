@@ -72,7 +72,9 @@ async fn main(){
             error!("Error fetching food properties: {:?}", e);
         }
     }
-    let tandoor_property_id_name: HashMap<i32, String> = tandoor_properties.iter().map(|x| (x.fdc_id, x.name.to_string())).collect();
+    let tandoor_property_id_name: HashMap<Option<i32>, String> = tandoor_properties
+        .iter()
+        .map(|x| (x.fdc_id, x.name.to_string())).collect();
 
     // Get Foods
     let mut tandoor_foods: Vec<InternalTandoorFood> = Vec::new();
@@ -286,7 +288,7 @@ async fn get_foods(client: &Client, tandoor_food_endpoint: &str, tandoor_api_key
 /// ### Remarks
 /// As the Tandoor API requires a property that we want to add to be identified by the name of the property we need to replace the name of FDC food property 
 /// with the name the user set in the Tandoor instance. Thus, we need the property name and not only the property id.
-async fn get_food_data(client: &Client, fdc_id: &i32, usda_api_key: &str, tandoor_property_id_name: &HashMap<i32, String>) -> Result<USDAApiResponse, Box<dyn Error>>{
+async fn get_food_data(client: &Client, fdc_id: &i32, usda_api_key: &str, tandoor_property_id_name: &HashMap<Option<i32>, String>) -> Result<USDAApiResponse, Box<dyn Error>>{
 
     // Ask USDA database for data using the fdc_id of the food    
     let request_url = format!("https://api.nal.usda.gov/fdc/v1/food/{}?", fdc_id);
@@ -309,11 +311,11 @@ async fn get_food_data(client: &Client, fdc_id: &i32, usda_api_key: &str, tandoo
     let mut food: USDAFood = serde_json::from_str(&body)?;
     
     // Filter the properties out that we do not want
-    food.food_nutrients.retain(|x| tandoor_property_id_name.contains_key(&x.nutrient_information.id));
+    food.food_nutrients.retain(|x| tandoor_property_id_name.contains_key(&Option::from(x.nutrient_information.id)));
 
     // Update the names of the usda food properties with the names of the tandoor properties
     for nutrient in &mut food.food_nutrients {
-        if let Some(new_name) = tandoor_property_id_name.get(&nutrient.nutrient_information.id) {
+        if let Some(new_name) = tandoor_property_id_name.get(&Option::from(nutrient.nutrient_information.id)) {
             nutrient.nutrient_information.name = new_name.clone();
         }
     }
@@ -335,16 +337,16 @@ async fn get_food_data(client: &Client, fdc_id: &i32, usda_api_key: &str, tandoo
 fn create_updated_food(tandoor_food: &InternalTandoorFood, usda_food: &USDAFood, override_properties: &bool) -> Result<(i32, ApiTandoorFood), Box<dyn Error>>{
     let mut local_food = (*tandoor_food).clone();
 
-    // If overriding is active, simply clear all current properties so that is_id_present below is
-    // always false.
+    // If overriding is active, remove all properties that are requested from USDA, keep those that
+    // do not have an FDC ID in the database.
     if *override_properties{
-        trace!("Deleting current properties of food {}.", local_food.name);
-        local_food.properties.clear();
+        trace!("Deleting current properties of food {} but keeping those without an FDC ID.", local_food.name);
+        local_food.properties.retain(|p| p.property_type.fdc_id.is_none());
     }
 
     for usda_nutrient in usda_food.food_nutrients.iter(){
         let is_id_present = local_food.properties.iter().any(|a| {
-            a.property_type.fdc_id == usda_nutrient.nutrient_information.id
+            a.property_type.fdc_id == Option::from(usda_nutrient.nutrient_information.id)
         });
         if !is_id_present {
             local_food.properties.push(InternalTandoorFoodProperty::from(usda_nutrient));

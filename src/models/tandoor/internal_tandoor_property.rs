@@ -7,7 +7,7 @@ pub struct InternalTandoorProperty {
     /// The name of the property.
     pub name: String,
     /// The FoodData Central ID of that property.
-    pub fdc_id: i32
+    pub fdc_id: Option<i32>
 }
 
 impl TryFrom<ApiTandoorProperty> for InternalTandoorProperty {
@@ -15,7 +15,7 @@ impl TryFrom<ApiTandoorProperty> for InternalTandoorProperty {
     fn try_from(value: ApiTandoorProperty) -> Result<Self, Self::Error> {        
         Ok(Self{
             name: value.name,
-            fdc_id: value.fdc_id.ok_or(())?
+            fdc_id: value.fdc_id
         })
     }
 }

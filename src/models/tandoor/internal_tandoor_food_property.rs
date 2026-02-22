@@ -18,7 +18,7 @@ impl From<&USDANutrient> for InternalTandoorFoodProperty{
             property_amount: value.amount,
             property_type: InternalTandoorProperty {
                 name: value.nutrient_information.name.to_string(),
-                fdc_id: value.nutrient_information.id
+                fdc_id: Option::from(value.nutrient_information.id)
             }
         }
     }

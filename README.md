@@ -32,10 +32,10 @@ Because adding all the properties to a food item by hand is quite annoying I bui
 ## Parameters
 
 ### Flags
-| Name          | short name | Description                                                                                                                                                                            | Required? | Default |
-|---------------|------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|---------|
-| --interactive | -i         | When set the program asks the user to provide an FDC ID when none was found                                                                                                            | No        | false   |
-| --override    | -o         | When set the program overrides properties that are already present. IMPOTANT: This can lead to data loss if properties do not have an FDC ID set. These will be removed from the food. | No        | false   |
+| Name          | short name | Description                                                                 | Required? | Default |
+|---------------|------------|-----------------------------------------------------------------------------|-----------|---------|
+| --interactive | -i         | When set the program asks the user to provide an FDC ID when none was found | No        | false   |
+| --override    | -o         | When set the program overrides properties that are already present.         | No        | false   |
 
 
 ### Parameters with value
